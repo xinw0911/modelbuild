@@ -16,8 +16,9 @@ from __future__ import absolute_import
 import argparse
 import json
 import sys
+import traceback
 
-from pipelines._utils import get_pipeline_driver, convert_struct
+from pipelines._utils import get_pipeline_driver, convert_struct, get_pipeline_custom_tags
 
 
 def main():  # pragma: no cover
@@ -73,15 +74,15 @@ def main():  # pragma: no cover
     tags = convert_struct(args.tags)
 
     try:
-        print(f"###### Get the pipeline defintion from {args.module_name}")
         pipeline = get_pipeline_driver(args.module_name, args.kwargs)
         print("###### Creating/updating a SageMaker Pipeline with the following definition:")
         parsed = json.loads(pipeline.definition())
         print(json.dumps(parsed, indent=2, sort_keys=True))
 
-        print(f'##### Pipeline execution role arn: {args.role_arn}')
+        all_tags = get_pipeline_custom_tags(args.module_name, args.kwargs, tags)
+
         upsert_response = pipeline.upsert(
-            role_arn=args.role_arn, description=args.description, tags=tags
+            role_arn=args.role_arn, description=args.description, tags=all_tags
         )
         print("\n###### Created/Updated SageMaker Pipeline: Response received:")
         print(upsert_response)
@@ -90,13 +91,19 @@ def main():  # pragma: no cover
         print(f"\n###### Execution started with PipelineExecutionArn: {execution.arn}")
 
         print("Waiting for the execution to finish...")
-        execution.wait()
+
+        # Setting the attempts and delay (in seconds) will modify the overall time the pipeline waits. 
+        # If the execution is taking a longer time, update these parameters to a larger value.
+        # Eg: The total wait time is calculated as 60 * 120 = 7200 seconds (2 hours)
+        execution.wait(max_attempts=120, delay=60)
+        
         print("\n#####Execution completed. Execution step details:")
 
         print(execution.list_steps())
         # Todo print the status?
     except Exception as e:  # pylint: disable=W0703
-        print(f"Exception in pipelines.run_pipeline:main: {e}")
+        print(f"Exception: {e}")
+        traceback.print_exc()
         sys.exit(1)
 
 
